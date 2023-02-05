@@ -24,8 +24,16 @@ if __name__ == '__main__':
     for attr in discrete_columns:
         attr_value_map[attr] = {f'== "{value}"' for value in data[attr].unique()}
 
-    model = DecisionTreeModel(attr_value_map, discrete_columns, [], label_column, labels, method='gini')
-    model.generate(data=training_data)
+    model = DecisionTreeModel(
+        attr_value_map,
+        discrete_columns,
+        [],
+        label_column,
+        labels,
+        method='gini',
+        validation_data=validation_data,
+    )
+    model.generate(data=training_data, prune='pre')
     print('决策树：')
     model.draw()
     predict = model.predict(data=validation_data)

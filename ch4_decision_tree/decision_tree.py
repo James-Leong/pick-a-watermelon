@@ -32,7 +32,20 @@ class DecisionTreeModel:
             label_col: str,
             labels: list,
             method: str = 'gain',
+            validation_data: pd.DataFrame = None,
     ) -> None:
+        """
+        决策树模型
+
+        Args:
+            attr_value_map (dict): 各属性取值范围
+            discrete_cols (list): 离散属性
+            continuous_cols (list): 连续属性
+            label_col (str): 分类标签
+            labels (list): 分类值
+            method (str, optional): 属性划分方法. Defaults to 'gain'.
+            validation_data (pd.DataFrame, optional): 验证集
+        """
         self.attr_value_map = attr_value_map  # 记录各属性的取值范围
         self.discrete_cols = discrete_cols  # 记录离散属性
         self.continuous_cols = continuous_cols  # 记录连续属性
@@ -40,6 +53,7 @@ class DecisionTreeModel:
         self.labels = labels  # 分类的所有值
         self.root = None  # 根节点
         self.method = method
+        self.validation_data = validation_data
 
     def Ent(self, data: pd.DataFrame) -> float:
         ent = 0
@@ -127,9 +141,19 @@ class DecisionTreeModel:
         t_best = params[0][2]
         return attr_best, t_best
 
-    def _generate(self, data: pd.DataFrame, attr: str, available_attrs: list) -> TreeNode:
+    def _generate(
+            self,
+            data: pd.DataFrame,
+            attr: str = None,
+            available_attrs: list = None,
+            prune: str = None,
+            is_root: bool = False
+    ) -> TreeNode:
         # 生成节点
         node = TreeNode()
+        node.label = data[self.label_col].value_counts().index[0]
+        if is_root:
+            self.root = node
         # 如果样本同属一个类别，返回
         if data[self.label_col].nunique() == 1:
             node.label = data[self.label_col].iloc[0]
@@ -147,28 +171,63 @@ class DecisionTreeModel:
         else:
             node.continuous = False
             values = self.attr_value_map[attr_best]
+        # 划分前的验证集精度
+        pre_accuracy = self.accuracy() if prune == 'pre' else 0
         for value in values:
             # 为属性a的所有可能取值分别生成一个分支，Dv表示这个分支的样本子集
             Dv = data.query(f'{attr_best} {value}')
+            # 使用当前节点样本子集中最多的分类作为子节点的先验分布
+            next_node = TreeNode()
+            next_node.label = data[self.label_col].value_counts().index[0]
+            node.next[value] = next_node
+            # 划分后的验证集精度
+            cur_accuracy = self.accuracy() if prune == 'pre' else 0
             if Dv.empty:
                 # 已知属性a的一个取值，但样本子集为空，使用当前节点的概率作为子节点的先验分布
-                next_node = TreeNode()
-                next_node.label = data[self.label_col].value_counts().index[0]
-            else:
+                pass
+            elif prune == 'pre' and cur_accuracy <= pre_accuracy:
+                # 精度无提升，不划分
+                pass
+            elif prune is None or (prune == 'pre' and cur_accuracy > pre_accuracy):
                 next_attrs = available_attrs.copy()
                 if not node.continuous:
                     next_attrs.remove(attr_best)
                 else:
                     # 与离散属性不同，结点划分为连续属性后，仍可作为其后代节点的划分属性
                     pass
-                next_node = self._generate(data=Dv, attr=attr_best, available_attrs=next_attrs)
-            node.next[value] = next_node
+                next_node = self._generate(data=Dv, attr=attr_best, available_attrs=next_attrs, prune=prune)
+                node.next[value] = next_node
         return node
 
-    def generate(self, data: pd.DataFrame) -> TreeNode:
-        root = self._generate(data=data, attr=None, available_attrs=self.discrete_cols+self.continuous_cols)
-        self.root = root
+    def generate(self, data: pd.DataFrame, prune: str = None) -> TreeNode:
+        """
+        生成决策树
+
+        Args:
+            data (pd.DataFrame): 训练集
+            prune (str, optional): 是否剪枝. 默认为None. 'pre': 预剪枝. 'post': 后剪枝
+
+        Returns:
+            TreeNode: _description_
+        """
+        root = self._generate(
+            data=data, available_attrs=self.discrete_cols+self.continuous_cols, prune=prune, is_root=True,
+        )
         return root
+
+    def accuracy(self):
+        if self.validation_data is None:
+            raise ValueError('请添加验证集')
+        predict = self.predict(data=self.validation_data, node=self.root)
+        if len(self.validation_data) != len(predict):
+            raise ValueError()
+        num = len(self.validation_data)
+        error = 0
+        for index, value in enumerate(predict):
+            if value != self.validation_data.iloc[index][self.label_col]:
+                error += 1
+        accuracy = 1 - error / num
+        return accuracy
 
     def predict(self, data: pd.DataFrame, node: TreeNode = None):
         node = node or self.root
