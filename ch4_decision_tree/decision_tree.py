@@ -25,13 +25,21 @@ class TreeNode:
 
 class DecisionTreeModel:
 
-    def __init__(self, attr_value_map: dict, discrete_cols: list, continuous_cols: list, label_col: str, labels: list) -> None:
+    def __init__(
+            self, attr_value_map: dict,
+            discrete_cols: list,
+            continuous_cols: list,
+            label_col: str,
+            labels: list,
+            method: str = 'gain',
+    ) -> None:
         self.attr_value_map = attr_value_map  # 记录各属性的取值范围
         self.discrete_cols = discrete_cols  # 记录离散属性
         self.continuous_cols = continuous_cols  # 记录连续属性
         self.label_col = label_col  # 记录结果标记
         self.labels = labels  # 分类的所有值
         self.root = None  # 根节点
+        self.method = method
 
     def Ent(self, data: pd.DataFrame) -> float:
         ent = 0
@@ -81,14 +89,42 @@ class DecisionTreeModel:
         result = gain_list[0][1]
         return  result, t_best
 
+    def Gini_D(self, data: pd.DataFrame) -> float:
+        result = 1
+        num = len(data)
+        for k in self.labels:
+            pk = len(data.loc[data[self.label_col] == k]) / num
+            result -= pk ** 2
+        return result
+
+    def Gini_D_a(self, data: pd.DataFrame, attr: str):
+        D_num = len(data)
+        result = 0
+        for value in self.attr_value_map[attr]:
+            Dv = data.query(f'{attr} {value}')
+            Dv_num = len(Dv)
+
+            result += Dv_num / D_num * self.Gini_D(data=Dv) if Dv_num else 0
+        return result, None
+
     def choose_best_attribute(self, data: pd.DataFrame, available_attrs: list):
-        gain_list = []
-        for attr in available_attrs:
-            gain_a, t = self.Gain_D_a(data, attr)
-            gain_list.append((attr, gain_a, t))
-        gain_list = sorted(gain_list, key=lambda x: x[1], reverse=True)
-        attr_best = gain_list[0][0]
-        t_best = gain_list[0][2]
+        params = []
+        if self.method == 'gain':
+            for attr in available_attrs:
+                gain_a, t = self.Gain_D_a(data, attr)
+                params.append((attr, gain_a, t))
+            # 选择使得信息增益最大的属性
+            params = sorted(params, key=lambda x: x[1], reverse=True)
+        elif self.method == 'gini':
+            for attr in available_attrs:
+                gini_a, _ = self.Gini_D_a(data, attr)
+                params.append((attr, gini_a, _))
+            # 选择使得Gini指数最小的属性
+            params = sorted(params, key=lambda x: x[1], reverse=False)
+        else:
+            raise ValueError(f'不支持的划分方法：{self.method}')
+        attr_best = params[0][0]
+        t_best = params[0][2]
         return attr_best, t_best
 
     def _generate(self, data: pd.DataFrame, attr: str, available_attrs: list) -> TreeNode:
@@ -134,8 +170,8 @@ class DecisionTreeModel:
         self.root = root
         return root
 
-    def predict(self, data: pd.DataFrame):
-        node = self.root
+    def predict(self, data: pd.DataFrame, node: TreeNode = None):
+        node = node or self.root
         result = []
         for i in range(len(data)):
             _result = node.predict(data.iloc[i].to_dict())
