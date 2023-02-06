@@ -6,7 +6,10 @@
 ```shell
 pip install poetry
 ```
-
+初始化
+```shell
+poetry env use /full/path/to/python3
+```
 使用poetry安装项目依赖包
 ```shell
 poetry install
