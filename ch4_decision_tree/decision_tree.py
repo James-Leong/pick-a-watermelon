@@ -13,6 +13,13 @@ class TreeNode:
         self.continuous = False
         self.next = dict()
 
+    @property
+    def leaf(self):
+        if self.next:
+            return False
+        else:
+            return True
+
     def predict(self, data: dict):
         if not self.next or not self.attr or self.attr not in data:
             return self.label
@@ -147,13 +154,11 @@ class DecisionTreeModel:
             attr: str = None,
             available_attrs: list = None,
             prune: str = None,
-            is_root: bool = False
+            node: TreeNode = None,
     ) -> TreeNode:
         # 生成节点
-        node = TreeNode()
+        node = node or TreeNode()
         node.label = data[self.label_col].value_counts().index[0]
-        if is_root:
-            self.root = node
         # 如果样本同属一个类别，返回
         if data[self.label_col].nunique() == 1:
             node.label = data[self.label_col].iloc[0]
@@ -171,32 +176,52 @@ class DecisionTreeModel:
         else:
             node.continuous = False
             values = self.attr_value_map[attr_best]
+        # 获取当前节点的特征值和样本子集
+        features = [(value, data.query(f'{attr_best} {value}')) for value in values]
         # 划分前的验证集精度
-        pre_accuracy = self.accuracy() if prune == 'pre' else 0
-        for value in values:
+        pre_accuracy = self.accuracy() if prune is not None else 0
+        # 对当前节点执行分枝
+        for value, Dv in features:
             # 为属性a的所有可能取值分别生成一个分支，Dv表示这个分支的样本子集
-            Dv = data.query(f'{attr_best} {value}')
-            # 使用当前节点样本子集中最多的分类作为子节点的先验分布
             next_node = TreeNode()
-            next_node.label = data[self.label_col].value_counts().index[0]
+            if Dv.empty: 
+                # 已知属性a的一个取值，但样本子集为空，使用当前节点样本集中最多的分类作为子节点的先验分布
+                next_node.label = data[self.label_col].value_counts().index[0]
+            else:
+                # 使用样本子集中最多的分类作为子节点的标记
+                next_node.label = Dv[self.label_col].value_counts().index[0]
             node.next[value] = next_node
-            # 划分后的验证集精度
-            cur_accuracy = self.accuracy() if prune == 'pre' else 0
+        # 划分后的验证集精度
+        cur_accuracy = self.accuracy() if prune in ['pre', 'post'] else 0
+        # 预剪枝
+        if prune == 'pre' and cur_accuracy <= pre_accuracy:
+            # 精度无提升，剪枝
+            node.next = dict()
+            return node
+        # 处理下一代子节点
+        for value, Dv in features: 
             if Dv.empty:
                 # 已知属性a的一个取值，但样本子集为空，使用当前节点的概率作为子节点的先验分布
+                continue
+            next_attrs = available_attrs.copy()
+            if not node.continuous:
+                next_attrs.remove(attr_best)
+            else:
+                # 与离散属性不同，结点划分为连续属性后，仍可作为其后代节点的划分属性
                 pass
-            elif prune == 'pre' and cur_accuracy <= pre_accuracy:
-                # 精度无提升，不划分
-                pass
-            elif prune is None or (prune == 'pre' and cur_accuracy > pre_accuracy):
-                next_attrs = available_attrs.copy()
-                if not node.continuous:
-                    next_attrs.remove(attr_best)
-                else:
-                    # 与离散属性不同，结点划分为连续属性后，仍可作为其后代节点的划分属性
-                    pass
-                next_node = self._generate(data=Dv, attr=attr_best, available_attrs=next_attrs, prune=prune)
-                node.next[value] = next_node
+            self._generate(
+                data=Dv,
+                attr=attr_best,
+                available_attrs=next_attrs,
+                prune=prune,
+                node=node.next[value],
+            )
+            # 生成子树后的验证集精度
+            post_accuracy = self.accuracy() if prune == 'post' else 0
+            # 后剪枝
+            if prune == 'post' and post_accuracy < cur_accuracy:
+                # 根据奥卡姆剃刀准则应该是<=，这里为了与原书保持一致使用<
+                node.next[value].next = dict()
         return node
 
     def generate(self, data: pd.DataFrame, prune: str = None) -> TreeNode:
@@ -210,8 +235,10 @@ class DecisionTreeModel:
         Returns:
             TreeNode: _description_
         """
-        root = self._generate(
-            data=data, available_attrs=self.discrete_cols+self.continuous_cols, prune=prune, is_root=True,
+        root = TreeNode()
+        self.root = root
+        self._generate(
+            data=data, available_attrs=self.discrete_cols+self.continuous_cols, prune=prune, node=root,
         )
         return root
 

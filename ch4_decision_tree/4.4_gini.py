@@ -7,7 +7,7 @@ from decision_tree import DecisionTreeModel
 if __name__ == '__main__':
 
     # 读取数据集
-    data_path = f'{os.path.dirname(__file__)}/../dataset/watermelon3_0_Ch.csv'
+    data_path = os.path.join(os.path.dirname(__file__), '../dataset/watermelon3_0_Ch.csv')
     # 数据处理
     label_column = '好瓜'
     labels = ['是', '否']
@@ -33,9 +33,22 @@ if __name__ == '__main__':
         method='gini',
         validation_data=validation_data,
     )
-    model.generate(data=training_data, prune='pre')
-    print('决策树：')
+    # 无剪枝
+    model.generate(data=training_data)
+    print('==========\n无剪枝决策树：')
     model.draw()
     predict = model.predict(data=validation_data)
-    print(f'预测结果： \n{predict}')
+    print(f'预测结果： \n{predict}，验证集准确率：{model.accuracy()}')
+    # 预剪枝
+    model.generate(data=training_data, prune='pre')
+    print('==========\n预剪枝决策树：')
+    model.draw()
+    predict = model.predict(data=validation_data)
+    print(f'预测结果： \n{predict}，验证集准确率：{model.accuracy()}')
+    # 后剪枝
+    model.generate(data=training_data, prune='post')
+    print('==========\n后剪枝决策树：')
+    model.draw()
+    predict = model.predict(data=validation_data)
+    print(f'预测结果： \n{predict}，验证集准确率：{model.accuracy()}')
 
