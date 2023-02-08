@@ -4,6 +4,8 @@ import pandas as pd
 
 from typing import Tuple
 
+from ch3_linear_model.logistic_regression import logistic_model, predict
+
 
 class TreeNode:
 
@@ -56,6 +58,7 @@ class DecisionTreeModel:
         self.attr_value_map = attr_value_map  # 记录各属性的取值范围
         self.discrete_cols = discrete_cols  # 记录离散属性
         self.continuous_cols = continuous_cols  # 记录连续属性
+        self.attr_cols = discrete_cols or [] + continuous_cols or []
         self.label_col = label_col  # 记录结果标记
         self.labels = labels  # 分类的所有值
         self.root = None  # 根节点
@@ -128,6 +131,22 @@ class DecisionTreeModel:
             result += Dv_num / D_num * self.Gini_D(data=Dv) if Dv_num else 0
         return result, None
 
+    def split_data(self, data: pd.DataFrame, attr, value):
+        if self.method == 'logistic_regression':
+            _X = data[self.attr_cols].values
+            operator, boundary = value.split(' ')
+            boundary = float(boundary)
+            _y = predict(X=_X, beta=attr, y=boundary)
+            if operator == '<=':
+                new_data = data[_y <= boundary]
+            elif operator == '>':
+                new_data = data[_y > boundary]
+            else:
+                raise ValueError(f'不支持的操作符：{operator}')
+        else:
+            new_data = data.query(f'{attr_best} {value}')
+        return new_data
+
     def choose_best_attribute(self, data: pd.DataFrame, available_attrs: list):
         params = []
         if self.method == 'gain':
@@ -142,6 +161,11 @@ class DecisionTreeModel:
                 params.append((attr, gini_a, _))
             # 选择使得Gini指数最小的属性
             params = sorted(params, key=lambda x: x[1], reverse=False)
+        elif self.method == 'logistic_regression':
+            X = data[self.attr_cols].values
+            y = data[self.label_col].values
+            beta = logistic_model(X, y, print_cost=False, method='gradDesc', learning_rate=0.3, num_iterations=1000)
+            params = [(beta, 0, 0.5)]
         else:
             raise ValueError(f'不支持的划分方法：{self.method}')
         attr_best = params[0][0]
@@ -170,14 +194,14 @@ class DecisionTreeModel:
         # 选择最优划分属性
         attr_best, t_best = self.choose_best_attribute(data, available_attrs)
         node.attr = attr_best
-        if attr_best in self.continuous_cols:
+        if self.method == 'logistic_regression' or attr_best in self.continuous_cols:
             node.continuous = True
             values = (f'<= {t_best}', f'> {t_best}')
         else:
             node.continuous = False
             values = self.attr_value_map[attr_best]
         # 获取当前节点的特征值和样本子集
-        features = [(value, data.query(f'{attr_best} {value}')) for value in values]
+        features = [(value, self.split_data(data, attr=attr_best, value=value)) for value in values]
         # 划分前的验证集精度
         pre_accuracy = self.accuracy() if prune is not None else 0
         # 对当前节点执行分枝
@@ -203,12 +227,15 @@ class DecisionTreeModel:
             if Dv.empty:
                 # 已知属性a的一个取值，但样本子集为空，使用当前节点的概率作为子节点的先验分布
                 continue
-            next_attrs = available_attrs.copy()
-            if not node.continuous:
-                next_attrs.remove(attr_best)
-            else:
+            if self.method == 'logistic_regression':
+                # 使用对数回归的多变量决策树，使用全部属性
+                next_attrs = available_attrs
+            elif node.continuous:
                 # 与离散属性不同，结点划分为连续属性后，仍可作为其后代节点的划分属性
-                pass
+                next_attrs = available_attrs
+            else:
+                next_attrs = available_attrs.copy()
+                next_attrs.remove(attr_best)
             self._generate(
                 data=Dv,
                 attr=attr_best,
@@ -238,7 +265,7 @@ class DecisionTreeModel:
         root = TreeNode()
         self.root = root
         self._generate(
-            data=data, available_attrs=self.discrete_cols+self.continuous_cols, prune=prune, node=root,
+            data=data, available_attrs=self.attr_cols, prune=prune, node=root,
         )
         return root
 
