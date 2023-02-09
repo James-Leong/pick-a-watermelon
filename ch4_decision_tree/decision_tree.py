@@ -297,7 +297,12 @@ class DecisionTreeModel:
         if not node.next:
             print('|    ' * depth + f'| -> {node.label}')
             return
-        print('|    ' * depth + f'|[{node.attr}]')
+        if self.method == 'logistic_regression':
+            _attr = ' + '.join([f'{w}*{self.attr_cols[i]}' for i, w in enumerate(node.attr.flatten()[:-1])])
+            _attr += f' + {node.attr.flatten()[-1]}'
+            print('|    ' * depth + f'|[sigmoid( {_attr} )]')
+        else:
+            print('|    ' * depth + f'|[{node.attr}]')
         for value, next_node in node.next.items():
             print('|    ' * depth + f'|  {value}')
             self.draw(next_node, depth=depth+1)
