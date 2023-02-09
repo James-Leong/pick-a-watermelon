@@ -31,10 +31,11 @@ if __name__ == '__main__':
         label_column,
         labels,
         method='logistic_regression',
+        validation_data=data,
     )
     # 无剪枝
     model.generate(data=data)
     print('==========\n无剪枝决策树：')
     model.draw()
-    # predict = model.predict(data=validation_data)
-    # print(f'预测结果： \n{predict}，验证集准确率：{model.accuracy()}')
+    predict = model.predict(data=data)
+    print(f'预测结果： \n{predict}，训练集准确率：{model.accuracy(data)}')

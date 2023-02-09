@@ -4,7 +4,7 @@ import pandas as pd
 
 from typing import Tuple
 
-from ch3_linear_model.logistic_regression import logistic_model, predict
+from ch3_linear_model.logistic_regression import logistic_model, predict, sigmoid
 
 
 class TreeNode:
@@ -30,6 +30,24 @@ class TreeNode:
                     (not self.continuous and eval(f'"{data[self.attr]}" {value}')):
                 return next_node.predict(data) 
         return self.label        
+
+    def predict_regression(self, data: np.array):
+        predict = np.zeros(len(data))
+        if not self.next or self.attr is None:
+            predict[:] = self.label
+            return predict
+        beta = self.attr  # shape=(features+1, 1)
+        sample = data.shape[0]
+        y = sigmoid(np.c_[data, np.ones(shape=(sample, 1))] @ beta).reshape((sample,))
+        for value, next_node in self.next.items():
+            operator, t = value.split(' ')
+            if operator == '<=':
+                _index = y <= float(t)
+            else:
+                _index = y > float(t)
+            next_predict = next_node.predict_regression(data[_index])
+            predict[_index] = next_predict
+        return predict
 
 
 class DecisionTreeModel:
@@ -228,6 +246,9 @@ class DecisionTreeModel:
                 # 已知属性a的一个取值，但样本子集为空，使用当前节点的概率作为子节点的先验分布
                 continue
             if self.method == 'logistic_regression':
+                if len(Dv) == len(data):
+                    # 回归模型把所有样本都划分为同一类
+                    continue
                 # 使用对数回归的多变量决策树，使用全部属性
                 next_attrs = available_attrs
             elif node.continuous:
@@ -269,9 +290,13 @@ class DecisionTreeModel:
         )
         return root
 
-    def accuracy(self):
-        if self.validation_data is None:
+    def accuracy(self, data: pd.DataFrame = None):
+        if data is None and self.validation_data is not None:
+            data = self.validation_data
+        elif data is None and self.validation_data is None:\
             raise ValueError('请添加验证集')
+        if data.empty:
+            raise ValueError('请添加数据集')
         predict = self.predict(data=self.validation_data, node=self.root)
         if len(self.validation_data) != len(predict):
             raise ValueError()
@@ -285,10 +310,13 @@ class DecisionTreeModel:
 
     def predict(self, data: pd.DataFrame, node: TreeNode = None):
         node = node or self.root
-        result = []
-        for i in range(len(data)):
-            _result = node.predict(data.iloc[i].to_dict())
-            result.append(_result)
+        if self.method == 'logistic_regression':
+            result = node.predict_regression(data[self.attr_cols].values).tolist()
+        else:
+            result = []
+            for i in range(len(data)):
+                _result = node.predict(data.iloc[i].to_dict())
+                result.append(_result)
         return result
 
     def draw(self, node: TreeNode = None, depth: int = 0):
