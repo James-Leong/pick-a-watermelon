@@ -25,7 +25,6 @@ if __name__ == '__main__':
     data[label_column] = data[label_column].astype(int)
 
     model = DecisionTreeModel(
-        dict(),
         [],
         new_columns,
         label_column,

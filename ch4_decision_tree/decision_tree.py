@@ -53,35 +53,54 @@ class TreeNode:
 class DecisionTreeModel:
 
     def __init__(
-            self, attr_value_map: dict,
+            self,
             discrete_cols: list,
             continuous_cols: list,
             label_col: str,
             labels: list,
             method: str = 'gain',
+            attr_value_map: dict = None,
+            attr_cols: list = None,
             validation_data: pd.DataFrame = None,
     ) -> None:
         """
         决策树模型
 
         Args:
-            attr_value_map (dict): 各属性取值范围
+            
             discrete_cols (list): 离散属性
             continuous_cols (list): 连续属性
             label_col (str): 分类标签
             labels (list): 分类值
             method (str, optional): 属性划分方法. Defaults to 'gain'.
+            attr_value_map (dict): 离散属性取值范围，如果未传，则为数据集中的取值范围
+            attr_cols (list): 所有属性列
             validation_data (pd.DataFrame, optional): 验证集
         """
         self.attr_value_map = attr_value_map  # 记录各属性的取值范围
-        self.discrete_cols = discrete_cols  # 记录离散属性
-        self.continuous_cols = continuous_cols  # 记录连续属性
-        self.attr_cols = discrete_cols or [] + continuous_cols or []
+        self.discrete_cols = discrete_cols or []  # 记录离散属性
+        self.continuous_cols = continuous_cols or [] # 记录连续属性
+        self.attr_cols = attr_cols or (self.discrete_cols + self.continuous_cols)
         self.label_col = label_col  # 记录结果标记
         self.labels = labels  # 分类的所有值
         self.root = None  # 根节点
         self.method = method
         self.validation_data = validation_data
+
+    def _confirm_attr_values(self, data: pd.DataFrame):
+        """
+        记录原始测试集的各属性取值范围
+
+        Args:
+            data (pd.DataFrame): 数据集
+        """
+        if not self.attr_value_map:
+            self.attr_value_map = dict()
+        for attr in self.discrete_cols:
+            if attr not in self.attr_value_map:
+                self.attr_value_map[attr] = set()
+            for value in data[attr].unique():
+                self.attr_value_map[attr].add(f'== "{value}"')
 
     def Ent(self, data: pd.DataFrame) -> float:
         ent = 0
@@ -139,7 +158,19 @@ class DecisionTreeModel:
             result -= pk ** 2
         return result
 
-    def Gini_D_a(self, data: pd.DataFrame, attr: str):
+    def Gini_D_a_t(self, data: pd.DataFrame, attr: str, t: float) -> float:
+        D_num = len(data)
+        # 属性值小于等于t
+        Dv_lte = data.loc[data[attr] <= t]
+        Dv_num_lte = len(Dv_lte)
+        # 属性值大于t
+        Dv_gt = data.loc[data[attr] > t]
+        Dv_num_gt = len(Dv_gt)
+
+        result = Dv_num_lte / D_num * self.Gini_D(Dv_lte) + Dv_num_gt / D_num * self.Gini_D(Dv_gt)
+        return result
+
+    def _Gini_D_a(self, data: pd.DataFrame, attr: str):
         D_num = len(data)
         result = 0
         for value in self.attr_value_map[attr]:
@@ -148,6 +179,21 @@ class DecisionTreeModel:
 
             result += Dv_num / D_num * self.Gini_D(data=Dv) if Dv_num else 0
         return result, None
+
+    def Gini_D_a(self, data: pd.DataFrame, attr: str):
+        if attr in self.discrete_cols:
+            return self._Gini_D_a(data, attr=attr), None
+        # 计算属性为连续值的增益值
+        gini_list = []
+        a_values = np.sort(data[attr].unique())
+        Ta = ((a_values + np.roll(a_values, -1)) / 2)[:-1]
+        for t in Ta:
+            gini_list.append((t, self.Gini_D_a_t(data, attr, t)))
+        gini_list = sorted(gini_list, key=lambda x: x[1])
+        # 属性a的gini值，所有t可能取值中，使得gini值最小的t划分的值
+        t_best = gini_list[0][0]
+        result = gini_list[0][1]
+        return  result, t_best
 
     def split_data(self, data: pd.DataFrame, attr, value):
         if self.method == 'logistic_regression':
@@ -283,6 +329,7 @@ class DecisionTreeModel:
         Returns:
             TreeNode: _description_
         """
+        self._confirm_attr_values(data=data)
         root = TreeNode()
         self.root = root
         self._generate(

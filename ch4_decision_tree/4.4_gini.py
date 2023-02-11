@@ -1,7 +1,8 @@
 import os
 import pandas as pd
 
-from decision_tree import DecisionTreeModel
+from __init__ import *
+from ch4_decision_tree.decision_tree import DecisionTreeModel
 
 
 if __name__ == '__main__':
@@ -19,13 +20,8 @@ if __name__ == '__main__':
     data[discrete_columns] = data[discrete_columns].astype(str)
     training_data = data.iloc[[0, 1, 2, 5, 6, 9, 13, 14, 15, 16]]
     validation_data = data.iloc[[3, 4, 7, 8, 10, 11, 12]]
-    # 记录原始测试集的各属性取值范围
-    attr_value_map = dict()
-    for attr in discrete_columns:
-        attr_value_map[attr] = {f'== "{value}"' for value in data[attr].unique()}
 
     model = DecisionTreeModel(
-        attr_value_map,
         discrete_columns,
         [],
         label_column,
