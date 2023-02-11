@@ -162,7 +162,7 @@ class DecisionTreeModel:
             else:
                 raise ValueError(f'不支持的操作符：{operator}')
         else:
-            new_data = data.query(f'{attr_best} {value}')
+            new_data = data.query(f'{attr} {value}')
         return new_data
 
     def choose_best_attribute(self, data: pd.DataFrame, available_attrs: list):
