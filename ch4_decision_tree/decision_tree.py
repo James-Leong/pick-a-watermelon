@@ -85,6 +85,8 @@ class DecisionTreeModel:
         self.labels = labels  # 分类的所有值
         self.root = None  # 根节点
         self.method = method
+        self.label_map = dict()
+        self.reverse_label_map = dict()
         self.validation_data = validation_data
 
     def _confirm_attr_values(self, data: pd.DataFrame):
@@ -107,6 +109,30 @@ class DecisionTreeModel:
             self.labels = set()
         for value in data[self.label_col].unique():
             self.labels.add(value)
+
+    def _transform_label(self, data: pd.DataFrame):
+        if self.method != 'logistic_regression' or data is None:
+            return data
+        labels = data[self.label_col].unique()
+        if not len(labels):
+            return data
+        for value in labels:
+            if not (isinstance(value, str) or isinstance(value, np.str_)):
+                continue
+            if not self.label_map:
+                self.label_map[value] = 0
+            elif value not in self.label_map:
+                self.label_map[value] = max(self.label_map.values()) + 1
+            else:
+                pass
+        if not self.label_map:
+            return data
+        data = data.copy()
+        for value, _i in self.label_map.items():
+            data.loc[data[self.label_col] == value, self.label_col] = _i
+        data[self.label_col] = data[self.label_col].astype(int)
+        self.reverse_label_map = {v: k for k, v in self.label_map.items()}
+        return data
 
     def Ent(self, data: pd.DataFrame) -> float:
         ent = 0
@@ -343,6 +369,8 @@ class DecisionTreeModel:
         """
         self._confirm_attr_values(data=data)
         self._confirm_label_values(data=data)
+        data = self._transform_label(data=data)
+        self.validation_data = self._transform_label(self.validation_data)
         root = TreeNode()
         self.root = root
         self._generate(
@@ -377,20 +405,30 @@ class DecisionTreeModel:
             for i in range(len(data)):
                 _result = node.predict(data.iloc[i].to_dict())
                 result.append(_result)
+        if self.reverse_label_map:
+            result = [self.reverse_label_map.get(_r) for _r in result]
         return result
 
     def draw(self, node: TreeNode = None, depth: int = 0):
         if not node:
             node = self.root
         if not node.next:
-            print('|    ' * depth + f'| -> {node.label}')
+            # 输出结果
+            if self.reverse_label_map and node.label in self.reverse_label_map:
+                label = self.reverse_label_map[node.label]
+            else:
+                label = node.label
+            print('|    ' * depth + f'| -> {label}')
             return
+        # 判断条件
         if self.method == 'logistic_regression':
             _attr = ' + '.join([f'{w}*{self.attr_cols[i]}' for i, w in enumerate(node.attr.flatten()[:-1])])
             _attr += f' + {node.attr.flatten()[-1]}'
             print('|    ' * depth + f'|[sigmoid( {_attr} )]')
         else:
             print('|    ' * depth + f'|[{node.attr}]')
+        # 值
         for value, next_node in node.next.items():
             print('|    ' * depth + f'|  {value}')
+            # 绘制子节点
             self.draw(next_node, depth=depth+1)
