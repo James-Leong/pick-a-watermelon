@@ -11,7 +11,6 @@ if __name__ == '__main__':
     data_path = os.path.join(os.path.dirname(__file__), '../dataset/watermelon3_0_Ch.csv')
     # 数据处理
     label_column = '好瓜'
-    labels = ['是', '否']
     continuous_columns = ['密度', '含糖率']
     discrete_columns = ['脐部', '色泽', '根蒂', '敲声', '纹理', '触感']
     data = pd.read_csv(data_path)
@@ -25,7 +24,6 @@ if __name__ == '__main__':
         discrete_columns,
         [],
         label_column,
-        labels,
         method='gini',
         validation_data=validation_data,
     )

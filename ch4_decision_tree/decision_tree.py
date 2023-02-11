@@ -56,11 +56,11 @@ class DecisionTreeModel:
             self,
             discrete_cols: list,
             continuous_cols: list,
-            label_col: str,
-            labels: list,
+            label_col: str, 
             method: str = 'gain',
             attr_value_map: dict = None,
             attr_cols: list = None,
+            labels: list = None,
             validation_data: pd.DataFrame = None,
     ) -> None:
         """
@@ -71,10 +71,10 @@ class DecisionTreeModel:
             discrete_cols (list): 离散属性
             continuous_cols (list): 连续属性
             label_col (str): 分类标签
-            labels (list): 分类值
             method (str, optional): 属性划分方法. Defaults to 'gain'.
             attr_value_map (dict): 离散属性取值范围，如果未传，则为数据集中的取值范围
             attr_cols (list): 所有属性列
+            labels (list): 分类值取值范围
             validation_data (pd.DataFrame, optional): 验证集
         """
         self.attr_value_map = attr_value_map  # 记录各属性的取值范围
@@ -101,6 +101,12 @@ class DecisionTreeModel:
                 self.attr_value_map[attr] = set()
             for value in data[attr].unique():
                 self.attr_value_map[attr].add(f'== "{value}"')
+
+    def _confirm_label_values(self, data: pd.DataFrame):
+        if not self.labels:
+            self.labels = set()
+        for value in data[self.label_col].unique():
+            self.labels.add(value)
 
     def Ent(self, data: pd.DataFrame) -> float:
         ent = 0
@@ -142,6 +148,8 @@ class DecisionTreeModel:
         # 计算属性为连续值的增益值
         gain_list = []
         a_values = np.sort(data[attr].unique())
+        if len(a_values) == 1:
+            return self.Gain_D_a_t(data, attr=attr, t=a_values[0]), a_values[0]
         Ta = ((a_values + np.roll(a_values, -1)) / 2)[:-1]
         for t in Ta:
             gain_list.append((t, self.Gain_D_a_t(data, attr, t)))
@@ -163,11 +171,13 @@ class DecisionTreeModel:
         # 属性值小于等于t
         Dv_lte = data.loc[data[attr] <= t]
         Dv_num_lte = len(Dv_lte)
+        gini_lte = self.Gini_D(Dv_lte) if Dv_num_lte else 0
         # 属性值大于t
         Dv_gt = data.loc[data[attr] > t]
         Dv_num_gt = len(Dv_gt)
+        gini_gte = self.Gini_D(Dv_gt) if Dv_num_gt else 0
 
-        result = Dv_num_lte / D_num * self.Gini_D(Dv_lte) + Dv_num_gt / D_num * self.Gini_D(Dv_gt)
+        result = Dv_num_lte / D_num * gini_lte + Dv_num_gt / D_num * gini_gte
         return result
 
     def _Gini_D_a(self, data: pd.DataFrame, attr: str):
@@ -186,6 +196,8 @@ class DecisionTreeModel:
         # 计算属性为连续值的增益值
         gini_list = []
         a_values = np.sort(data[attr].unique())
+        if len(a_values) == 1:
+            return self.Gini_D_a_t(data, attr=attr, t=a_values[0]), a_values[0]
         Ta = ((a_values + np.roll(a_values, -1)) / 2)[:-1]
         for t in Ta:
             gini_list.append((t, self.Gini_D_a_t(data, attr, t)))
@@ -330,6 +342,7 @@ class DecisionTreeModel:
             TreeNode: _description_
         """
         self._confirm_attr_values(data=data)
+        self._confirm_label_values(data=data)
         root = TreeNode()
         self.root = root
         self._generate(

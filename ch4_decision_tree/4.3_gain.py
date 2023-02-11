@@ -10,7 +10,6 @@ if __name__ == '__main__':
     data_path = os.path.join(os.path.dirname(__file__), '../dataset/watermelon3_0_Ch.csv')
     # 数据处理
     label_column = '好瓜'
-    labels = ['是', '否']
     continuous_columns = ['密度', '含糖率']
     discrete_columns = ['色泽', '根蒂', '敲声', '纹理', '脐部', '触感']
     data = pd.read_csv(data_path)
@@ -18,7 +17,7 @@ if __name__ == '__main__':
     data[discrete_columns] = data[discrete_columns].astype(str)
     data[continuous_columns] = data[continuous_columns].astype(float)
 
-    model = DecisionTreeModel(discrete_columns, continuous_columns, label_column, labels)
+    model = DecisionTreeModel(discrete_columns, continuous_columns, label_column)
     model.generate(data=data)
     model.draw()
     predict = model.predict(data=data)
