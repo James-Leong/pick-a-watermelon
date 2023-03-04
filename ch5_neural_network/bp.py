@@ -1,5 +1,4 @@
-import math
-import random
+import numpy as np
 
 
 class StandardBP:
@@ -9,25 +8,17 @@ class StandardBP:
         self.output_layer = None  # 输出层阈值
         self.v_weight = None  # 输入层与隐藏层的连接权值
         self.w_weight = None  # 隐藏层与输出层的连接权值
-        self.alpha = None  # 隐藏层输入值
-        self.b = None  # 隐藏层输出值
-        self.beta = None  # 输出层输入值
-        self.y = None  # 输出层输出值
 
     def init(self, input: int, hidden: int, ouput: int):
         self.input_layer = [None for i in range(input)]
-        self.hidden_layer = [random.random() for i in range(hidden)]
-        self.output_layer = [random.random() for i in range(ouput)]
-        self.v_weight = []
-        for x in self.input_layer:
-            self.v_weight.append([random.random() for b in self.hidden_layer])
-        self.w_weight = []
-        for b in self.hidden_layer:
-            self.w_weight.append([random.random() for y in self.output_layer])
+        self.hidden_layer = np.zeros((1, hidden))  # 隐藏层阈值，列向量
+        self.output_layer = np.zeros((1, ouput))  # 输出层阈值，列向量
+        self.v_weight = np.zeros((input, hidden))  # 输入层与隐藏层的连接权值
+        self.w_weight = np.zeros((hidden, ouput))  # 隐藏层与输出层的连接权值
 
     @staticmethod
     def sigmoid(x):
-        s = 1/ (1 + math.exp(-x))
+        s = 1/ (1 + np.exp(-x))
         return s
 
     @staticmethod
@@ -36,68 +27,53 @@ class StandardBP:
         求均方误差
 
         Args:
-            predict (_type_): 预测值
-            sample (_type_): 样本值
+            predict (np.array): 预测值
+            sample (np.array): 样本值
 
         Returns:
-            _type_: 均方误差
+            np.array: 均方误差
         """
-        e = (predict - sample) ** 2 / 2
+        # E_k = sigma_j(predict_j - y_j) / 2
+        e = np.sum(np.square(predict - sample) / 2, axis=1)
         return e
 
-    def update_w(self, g, eta):
-        deta_w = []
-        for h in range(len(self.hidden_layer)):
-            deta_w.append([
-                eta * g[j] * self.b[h]
-                for j in range(len(self.output_layer))
-            ])
-        for h, w_list in enumerate(self.w_weight):
-            for j in range(len(w_list)):
-                self.w_weight[h][j] += deta_w[h][j]
+    def update_w(self, b, g, eta):
+        self.w_weight += (eta * g * b).T
 
     def update_thet(self, g, eta):
-        deta_thet = [-eta * g[j] for j in range(len(self.output_layer))]
-        for j in range(len(self.output_layer)):
-            self.output_layer[j] += deta_thet[j]
+        self.output_layer += -eta * g.T
 
     def update_v(self, e, x, eta):
-        deta_v = []
-        for i in range(len(self.input_layer)):
-            deta_v.append([
-                eta * e[h] * x[i]
-                for h in range(len(self.hidden_layer))
-            ])
-        for i, v_list in enumerate(self.v_weight):
-            for h in range(len(v_list)):
-                self.v_weight[i][h] += deta_v[i][h]
+        self.v_weight += eta * e * x.T
 
     def update_lambda(self, e, eta):
-        deta_lambda = [-eta * e[h] for h in range(len(self.hidden_layer))]
-        for h in range(len(self.hidden_layer)):
-            self.hidden_layer[h] += deta_lambda[h]
+        self.hidden_layer += -eta * e
 
     def _predict(self, x):
+        """
+        前向传播
+
+        Args:
+            x (np.array): 样本集，shape=(samples, features)
+
+        Returns:
+            np.array: 隐藏层输入
+            np.array: 隐藏层输出
+            np.array: 输出层输入
+            np.array: 输出层输出
+        """
         # 计算隐藏层输入：alpha_h = sigma(v_ih * x_i)
-        self.alpha = [0 for h in range(len(self.hidden_layer))]
-        for i, v_list in enumerate(self.v_weight):
-            for h, v_ih in enumerate(v_list):
-                self.alpha[h] += v_ih * x[i]
+        alpha = np.dot(x, self.v_weight)
         # 计算隐藏层输出：b_h = sigmoid(alpha_h - lambda_h)
-        self.b = [self.sigmoid(self.alpha[h] - self.hidden_layer[h]) for h in range(len(self.hidden_layer))]
+        b = self.sigmoid(alpha - self.hidden_layer)
         # 计算输出层输入：beta_j = sigma(w_hj * b_h)
-        self.beta = [0 for j in range(len(self.output_layer))]
-        for h, w_list in enumerate(self.w_weight):
-            for j, w_hj in enumerate(w_list):
-                self.beta[j] += w_hj * self.b[h]
+        beta = np.dot(b, self.w_weight)
         # 计算输出层输出：y_j = sigmoid(beta_j - thet_j)
-        self.y = [self.sigmoid(self.beta[j] - self.output_layer[j]) for j in range(len(self.output_layer))]
-        return self.y
+        y = self.sigmoid(beta - self.output_layer)
+        return alpha, b, beta, y
 
     def predict(self, X):
-        y = []
-        for x in X:
-            y.append(self._predict(x))
+        _, _ , _, y = self._predict(X)
         return y
 
     def train(self, X, y, eta, n=1000):
@@ -109,24 +85,29 @@ class StandardBP:
             y (list or np.array): 输出
             eta (float): 学习率
             n (int): 最大迭代次数
+
+        Returns:
+            list: 累积误差
         """
         if len(X) != len(y):
             raise ValueError('参数错误！')
-        _cur = 0
-        while _cur < n:
-            _cur += 1
-            for _index, x_sample in enumerate(X):
-                y_sample = y[_index]
-                y_predict = self._predict(x_sample)[0]
-                # error_k = self.mean_square_error(predict=y_predict, sample=y_sample)
-                # print(error_k)
-                g = [y_predict * (1- y_predict) * (y_sample - y_predict)]
-                e = [0 for h in range(len(self.hidden_layer))]
-                for h in range(len(e)):
-                    e[h] = self.b[h] * (1- self.b[h]) * sum([
-                        self.w_weight[h][j] * g[j] for j in range(len(self.output_layer))
-                    ])
-                self.update_w(g, eta)
+        sample_n = X.shape[0]
+        error_list = []
+        for _ in range(n):
+            error = 0  # 累积误差
+            for _index in range(sample_n):
+                x_sample = X[_index].reshape(1, -1)  # 行向量
+                y_sample = y[_index].reshape(1, -1)  # 行向量
+                # 前向传播
+                _, b, _, y_predict = self._predict(x_sample)
+                error_k = self.mean_square_error(predict=y_predict, sample=y_sample)
+                error += error_k[0]
+                # 误差逆传播
+                g = y_predict * (1- y_predict) * (y_sample - y_predict)
+                e = b * (1 - b) * np.dot(self.w_weight, g.T).T
+                self.update_w(b, g, eta)
                 self.update_thet(g, eta)
                 self.update_v(e, x_sample, eta)
-                self.update_thet(e, eta)
+                self.update_lambda(e, eta)
+            error_list.append(error)
+        return error_list
