@@ -111,3 +111,48 @@ class StandardBP:
                 self.update_lambda(e, eta)
             error_list.append(error)
         return error_list
+
+
+class AccumBP(StandardBP):
+
+    def update_w(self, b, g, eta):
+        self.w_weight += eta * np.dot(b.T, g)
+
+    def update_thet(self, g, eta):
+        self.output_layer += -eta * np.sum(g, axis=0).reshape(1, -1)
+
+    def update_v(self, e, x, eta):
+        self.v_weight += eta * np.dot(x.T, e)
+
+    def update_lambda(self, e, eta):
+        self.hidden_layer += -eta * np.sum(e, axis=0).reshape(1, -1)
+
+    def train(self, X, y, eta, n=1000):
+        """
+        训练神经网络
+
+        Args:
+            X (list or np.array): 输入
+            y (list or np.array): 输出
+            eta (float): 学习率
+            n (int): 最大迭代次数
+
+        Returns:
+            list: 累积误差
+        """
+        if len(X) != len(y):
+            raise ValueError('参数错误！')
+        error_list = []
+        for _ in range(n):
+            # 前向传播
+            _, b, _, y_predict = self._predict(X)
+            error_k = self.mean_square_error(predict=y_predict, sample=y)
+            # 误差逆传播
+            g = y_predict * (1- y_predict) * (y - y_predict)
+            e = b * (1 - b) * np.dot(self.w_weight, g.T).T
+            self.update_w(b, g, eta)
+            self.update_thet(g, eta)
+            self.update_v(e, X, eta)
+            self.update_lambda(e, eta)
+            error_list.append(np.sum(error_k))
+        return error_list

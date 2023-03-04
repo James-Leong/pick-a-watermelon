@@ -1,4 +1,5 @@
 import os
+import time
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -6,7 +7,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.utils import shuffle
 
 from __init__ import *
-from ch5_neural_network.bp import StandardBP
+from ch5_neural_network.bp import StandardBP, AccumBP
 
 
 if __name__ == '__main__':
@@ -37,20 +38,37 @@ if __name__ == '__main__':
     standard_bp = StandardBP()
     standard_bp.init(input=feature_n, hidden=10, ouput=y.shape[1])
 
+    st = time.time()
     standard_loss = standard_bp.train(X=X, y=y, eta=0.01, n=max_iter)
+    ed = time.time()
     probability = standard_bp.predict(X)
     y_predict = [1 if _p[0] > 0.5 else 0 for _p in probability]
     error = 0
     for _index, _y in enumerate(y.reshape(sample_n)):
         if _y != y_predict[_index]:
             error += 1
-    print(f'标准BP网络正确率：{round(1-error/len(y), 2)}')
+    print(f'标准BP网络正确率：{round(1-error/len(y), 2)}, 用时：{round(ed-st, 2)}s')
+
+    accum_bp = AccumBP()
+    accum_bp.init(input=feature_n, hidden=10, ouput=y.shape[1])
+
+    st = time.time()
+    accum_loss = accum_bp.train(X=X, y=y, eta=0.01, n=max_iter)
+    ed = time.time()
+    probability = accum_bp.predict(X)
+    y_predict = [1 if _p[0] > 0.5 else 0 for _p in probability]
+    error = 0
+    for _index, _y in enumerate(y.reshape(sample_n)):
+        if _y != y_predict[_index]:
+            error += 1
+    print(f'累积BP网络正确率：{round(1-error/len(y), 2)}, 用时：{round(ed-st, 2)}s')
 
     ##Loss可视化
     plt.figure()
     plt.plot([i+1 for i in range(max_iter)], standard_loss)
-    plt.legend(['standard BP'])
+    plt.plot([i+1 for i in range(max_iter)], accum_loss)
+    plt.legend(['standard BP', 'Accumulated BP'])
     plt.xlabel('iteration')
     plt.ylabel('loss')
     plt.show()
-    plt.savefig("standard_bp_loss.png")
+    plt.savefig("bp_loss.png")
