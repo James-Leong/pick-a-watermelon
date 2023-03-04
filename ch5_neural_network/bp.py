@@ -156,3 +156,52 @@ class AccumBP(StandardBP):
             self.update_lambda(e, eta)
             error_list.append(np.sum(error_k))
         return error_list
+
+
+class AdaptedBP(StandardBP):
+    """使用自适应学习率的标准BP算法"""
+
+    def train(self, X, y, eta, n=1000):
+        """
+        训练神经网络
+
+        Args:
+            X (list or np.array): 输入
+            y (list or np.array): 输出
+            eta (float): 学习率
+            n (int): 最大迭代次数
+
+        Returns:
+            list: 累积误差
+        """
+        if len(X) != len(y):
+            raise ValueError('参数错误！')
+        sample_n = X.shape[0]
+        error_list = []
+        for _ in range(n):
+            error = 0  # 累积误差
+            for _index in range(sample_n):
+                x_sample = X[_index].reshape(1, -1)  # 行向量
+                y_sample = y[_index].reshape(1, -1)  # 行向量
+                # 前向传播
+                _, b, _, y_predict = self._predict(x_sample)
+                error_k = self.mean_square_error(predict=y_predict, sample=y_sample)
+                error += error_k[0]
+                # 误差逆传播
+                g = y_predict * (1- y_predict) * (y_sample - y_predict)
+                e = b * (1 - b) * np.dot(self.w_weight, g.T).T
+                self.update_w(b, g, eta)
+                self.update_thet(g, eta)
+                self.update_v(e, x_sample, eta)
+                self.update_lambda(e, eta)
+            if error_list:
+                if error < 0.9999 * error_list[-1]:
+                    # 误差显著降低了，可以适当增大学习率
+                    eta *= 1.05
+                elif error > 1.0001 * error_list[-1]:
+                    # 误差没有显著降低，可以适当减小学习率
+                    eta *= 0.7
+                else:
+                    eta *= 1
+            error_list.append(error)
+        return error_list
