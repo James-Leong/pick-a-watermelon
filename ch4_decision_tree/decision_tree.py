@@ -62,6 +62,8 @@ class DecisionTreeModel:
             attr_cols: list = None,
             labels: list = None,
             validation_data: pd.DataFrame = None,
+            continuous_reusable: bool = True,
+            weight_col: str = None,
     ) -> None:
         """
         决策树模型
@@ -76,6 +78,8 @@ class DecisionTreeModel:
             attr_cols (list): 所有属性列
             labels (list): 分类值取值范围
             validation_data (pd.DataFrame, optional): 验证集
+            continuous_reusable (bool, optional): 连续属性是否可服用. Defaults to True.
+            weight_col (str, optional): 样本权值标签. Defaults to None.
         """
         self.attr_value_map = attr_value_map  # 记录各属性的取值范围
         self.discrete_cols = discrete_cols or []  # 记录离散属性
@@ -88,6 +92,8 @@ class DecisionTreeModel:
         self.label_map = dict()
         self.reverse_label_map = dict()
         self.validation_data = validation_data
+        self.continuous_reusable = continuous_reusable
+        self.weight_col = weight_col
 
     def _confirm_attr_values(self, data: pd.DataFrame):
         """
@@ -135,54 +141,74 @@ class DecisionTreeModel:
         return data
 
     def Ent(self, data: pd.DataFrame) -> float:
+        """计算当前样本集合的信息熵"""
         ent = 0
-        num = len(data)
+        num = len(data) if not self.weight_col else sum(data[self.weight_col].values)
         for k in self.labels:
-            pk = len(data.loc[data[self.label_col] == k]) / num
+            k_sample = data.loc[data[self.label_col] == k]
+            specific = len(k_sample) if not self.weight_col else sum(k_sample[self.weight_col].values)
+            pk = specific / num
             if pk != 0:
                 ent -= pk * math.log(pk, 2)
         return ent
 
-    def Gain_D_a_t(self, data, attr, t) -> float:
+    def _Gain_D_a_t(self, data, attr, t) -> float:
+        """计算样本集合在连续属性上基于划分点二分后的信息增益"""
         ent_D = self.Ent(data=data)
-        D_num = len(data)
+        D_num = len(data) if not self.weight_col else sum(data[self.weight_col].values)
         Dv_gt = data.loc[data[attr] > t]
-        Dv_num_gt = len(Dv_gt)
+        Dv_num_gt = len(Dv_gt) if not self.weight_col else sum(Dv_gt[self.weight_col].values)
         ent_gt = self.Ent(Dv_gt) if Dv_num_gt else 0
         Dv_lte = data.loc[data[attr] <= t]
-        Dv_num_lte = len(Dv_lte)
+        Dv_num_lte = len(Dv_lte) if not self.weight_col else sum(Dv_lte[self.weight_col].values)
         ent_lte = self.Ent(Dv_lte) if Dv_num_lte else 0
 
         result = ent_D - (Dv_num_lte / D_num * ent_lte) - (Dv_num_gt / D_num * ent_gt)
         return result
 
-    def _Gain_D_a(self, data, attr) -> float:
-        ent_D = self.Ent(data=data)
-        D_num = len(data)
+    def _Gain_D_a_cont(self, data, attr) -> Tuple:
+        """计算样本集合在连续属性上的信息增益，选择最优的划分点对样本集合进行划分"""
+        gain_list = []
+        a_values = np.sort(data[attr].unique())
+        if len(a_values) == 1:
+            return self._Gain_D_a_t(data, attr=attr, t=a_values[0]), a_values[0]
+        Ta = ((a_values + np.roll(a_values, -1)) / 2)[:-1]
+        for t in Ta:
+            gain_list.append((t, self._Gain_D_a_t(data, attr, t)))
+        gain_list = sorted(gain_list, key=lambda x: x[1], reverse=True)
+        t_best = gain_list[0][0]
+        result = gain_list[0][1]
+        return result, t_best
+
+    def _Gain_D_a_disc(self, data, attr) -> float:
+        """计算样本集合在离散属性上的信息增益"""
+        ent_D = self.Ent(data=data)  # 样本集合总的信息熵
+        D_num = len(data) if not self.weight_col else sum(data[self.weight_col].values)
         result = ent_D
         for value in self.attr_value_map[attr]:
             Dv = data.query(f'{attr} {value}')
-            Dv_num = len(Dv)
-            ent_Dv = self.Ent(data=Dv) if Dv_num else 0
+            Dv_num = len(Dv) if not self.weight_col else sum(Dv[self.weight_col].values)
+            ent_Dv = self.Ent(data=Dv) if Dv_num else 0  # 样本集合在属性a上取值为value的子集的信息熵
 
             result -= Dv_num / D_num * ent_Dv
         return result
 
-    def Gain_D_a(self, data, attr) -> Tuple:
+    def Gain_D_a(self, data: pd.DataFrame, attr: str) -> Tuple:
+        """
+        计算样本集合在属性attr上的信息增益
+
+        Args:
+            data (pd.DataFrame): 样本集
+            attr (str): 属性名称
+
+        Returns:
+            float: 信息增益值
+            float: 连续属性的最佳划分值
+        """
         if attr in self.discrete_cols:
-            return self._Gain_D_a(data, attr=attr), None
-        # 计算属性为连续值的增益值
-        gain_list = []
-        a_values = np.sort(data[attr].unique())
-        if len(a_values) == 1:
-            return self.Gain_D_a_t(data, attr=attr, t=a_values[0]), a_values[0]
-        Ta = ((a_values + np.roll(a_values, -1)) / 2)[:-1]
-        for t in Ta:
-            gain_list.append((t, self.Gain_D_a_t(data, attr, t)))
-        gain_list = sorted(gain_list, key=lambda x: x[1], reverse=True)
-        t_best = gain_list[0][0]
-        result = gain_list[0][1]
-        return  result, t_best
+            return self._Gain_D_a_disc(data, attr=attr), None
+        else:
+            return self._Gain_D_a_cont(data, attr=attr)
 
     def Gini_D(self, data: pd.DataFrame) -> float:
         result = 1
@@ -335,7 +361,7 @@ class DecisionTreeModel:
                     continue
                 # 使用对数回归的多变量决策树，使用全部属性
                 next_attrs = available_attrs
-            elif node.continuous:
+            elif node.continuous and self.continuous_reusable:
                 # 与离散属性不同，结点划分为连续属性后，仍可作为其后代节点的划分属性
                 next_attrs = available_attrs
             else:
@@ -381,17 +407,17 @@ class DecisionTreeModel:
     def accuracy(self, data: pd.DataFrame = None):
         if data is None and self.validation_data is not None:
             data = self.validation_data
-        elif data is None and self.validation_data is None:\
+        elif data is None and self.validation_data is None:
             raise ValueError('请添加验证集')
         if data.empty:
             raise ValueError('请添加数据集')
-        predict = self.predict(data=self.validation_data, node=self.root)
-        if len(self.validation_data) != len(predict):
+        predict = self.predict(data=data, node=self.root)
+        if len(data) != len(predict):
             raise ValueError()
-        num = len(self.validation_data)
+        num = len(data)
         error = 0
         for index, value in enumerate(predict):
-            if value != self.validation_data.iloc[index][self.label_col]:
+            if value != data.iloc[index][self.label_col]:
                 error += 1
         accuracy = 1 - error / num
         return accuracy
